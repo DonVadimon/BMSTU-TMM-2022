@@ -227,24 +227,28 @@ class ImageConverter:
         self.img = img_original
 
 
-cv2.namedWindow("preview")
-vc = cv2.VideoCapture(0)
-
-rval, frame = vc.read()
-app_win = None
-
-while True:
-
-    if frame is not None:
-        if app_win is None:
-            app_win = AppWindow(img=frame, waitKey=None, video=True)
-        else:
-            app_win.update_window(img=frame)
+def run_with_video():
+    cv2.namedWindow("preview")
+    vc = cv2.VideoCapture(0)
 
     rval, frame = vc.read()
+    app_win = None
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+    while True:
+
+        if frame is not None:
+            if app_win is None:
+                app_win = AppWindow(img=frame, waitKey=None, video=True)
+            else:
+                app_win.update_window(img=frame)
+
+        rval, frame = vc.read()
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+
+run_with_video()
 
 # img = cv2.imread('./toxa.jpeg')
 
