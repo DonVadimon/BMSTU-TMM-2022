@@ -116,10 +116,9 @@ class ImageConverter:
 
         self.img = img.copy()
         self.img_original = img.copy()
-        self.img_gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
 
-    def processFace(self, face, face_parts,  red, green, blue):
-        landmarks = self.predictor(self.img_gray, face)
+    def processFace(self, face, face_parts, img_gray, red, green, blue):
+        landmarks = self.predictor(img_gray, face)
         points = []
 
         for n in range(68):
@@ -137,8 +136,6 @@ class ImageConverter:
             part_bw_mask = self.create_bw_mask_by_points(
                 self.img_original, points[part_range])
 
-            cv2.imshow('part_bw_mask', part_bw_mask)
-
             bw_mask = cv2.add(bw_mask, part_bw_mask)
 
             if part_range in face_parts:
@@ -147,9 +144,6 @@ class ImageConverter:
 
                 color_mask = np.zeros_like(part_bw_mask)
                 color_mask[:] = red, green, blue
-
-                cv2.imshow('color_mask', color_mask)
-
                 color_mask = cv2.bitwise_and(part_bw_mask, color_mask)
                 color_mask = cv2.GaussianBlur(color_mask, (7, 7), 10)
 
@@ -162,7 +156,6 @@ class ImageConverter:
             else:
                 processed_part = self.crop_by_points(
                     self.img, points[part_range])
-                cv2.imshow('processed_part', processed_part)
                 processed_parts.append(processed_part.copy())
 
         merged_mask = np.zeros_like(self.img_original)
@@ -171,35 +164,23 @@ class ImageConverter:
             merged_mask = cv2.addWeighted(
                 merged_mask, 1, processed_part, 1, 0)
 
-        cv2.imshow('merged_mask', merged_mask)
-
-        cv2.imshow('bw_mask', bw_mask)
-
         bw_mask_inversed = cv2.bitwise_not(bw_mask)
-        cv2.imshow('bw_mask_inversed', bw_mask_inversed)
 
         bw_mask_merged = cv2.bitwise_and(bw_mask_inversed, self.img)
 
-        cv2.imshow('bw_mask_merged', bw_mask_merged)
-
         proc_img = cv2.add(bw_mask_merged, merged_mask)
-        cv2.imshow('proc_img', proc_img)
 
         return proc_img
 
     def processImage(self, face_parts, red, green, blue):
-        faces = self.detector(self.img_gray)
+        img_gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
+        faces = self.detector(img_gray)
 
         processed_images = []
 
         for face in faces:
             proc_img = self.processFace(
-                face, face_parts, red, green, blue)
-
-            # merged_img = cv2.bitwise_not(merged_mask)
-
-            # merged_img = cv2.addWeighted(
-            #     self.img_original, 1, merged_mask, 0, 0)
+                face, face_parts, img_gray, red, green, blue)
 
             processed_images.append(proc_img)
 
