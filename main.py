@@ -1,5 +1,4 @@
 import enum
-import imp
 
 import enum
 from os import remove
@@ -33,10 +32,16 @@ class AppWindow():
 
         cv2.createTrackbar(
             FacePartsRanges.LIPS.name, self.NAME, 0, 1, self.on_lips_change)
+
         cv2.createTrackbar(
             FacePartsRanges.LEFT_EYE.name, self.NAME, 0, 1, self.on_left_eye_change)
         cv2.createTrackbar(
             FacePartsRanges.RIGHT_EYE.name, self.NAME, 0, 1, self.on_right_eye_change)
+
+        cv2.createTrackbar(
+            FacePartsRanges.LEFT_BROW.name, self.NAME, 0, 1, self.on_left_brow_change)
+        cv2.createTrackbar(
+            FacePartsRanges.RIGHT_BROW.name, self.NAME, 0, 1, self.on_right_brow_change)
 
         cv2.imshow(self.NAME, img)
         cv2.waitKey(0)
@@ -72,6 +77,12 @@ class AppWindow():
     def on_right_eye_change(self, value):
         self.on_face_part_option_change(FacePartsRanges.RIGHT_EYE.name, value)
 
+    def on_left_brow_change(self, value):
+        self.on_face_part_option_change(FacePartsRanges.LEFT_BROW.name, value)
+
+    def on_right_brow_change(self, value):
+        self.on_face_part_option_change(FacePartsRanges.RIGHT_BROW.name, value)
+
     def on_red_trackbar_change(self, value):
         self.red = value
         self.update_window()
@@ -86,10 +97,10 @@ class AppWindow():
 
 
 class FacePartsRanges(enum.Enum):
-    FACE_SHAPE = slice(0, 17)
+    # FACE_SHAPE = slice(0, 17)
     LEFT_BROW = slice(17, 22)
     RIGHT_BROW = slice(22, 27)
-    NOSE = slice(27, 36)
+    # NOSE = slice(27, 36)
     LEFT_EYE = slice(36, 42)
     RIGHT_EYE = slice(42, 48)
     LIPS = slice(48, 69)
@@ -103,16 +114,12 @@ class ImageConverter:
         self.predictor = dlib.shape_predictor(
             'shape_predictor_68_face_landmarks.dat')
 
-        self.img = cv2.resize(
-            img, (0, 0), None, self.INITIAL_SCALE, self.INITIAL_SCALE)
+        self.img = img.copy()
         self.img_original = img.copy()
-        self.imgGray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
-
-        # ! here we go
-        self.changed_parts = set()
+        self.img_gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
 
     def processFace(self, face, face_parts,  red, green, blue):
-        landmarks = self.predictor(self.imgGray, face)
+        landmarks = self.predictor(self.img_gray, face)
         points = []
 
         for n in range(68):
@@ -120,60 +127,97 @@ class ImageConverter:
             y = landmarks.part(n).y
             points.append([x, y])
 
-        merged_img = self.img_original.copy()
         points = np.array(points)
 
-        for part in FacePartsRanges.__members__:
-            if FacePartsRanges[part].value in face_parts:
-                part_box = self.createBox(
-                    self.img_original, points[FacePartsRanges[part].value], masked=True, cropped=False)
+        processed_parts = list()
+        bw_mask = np.zeros_like(self.img_original)
 
-                color_mask = np.zeros_like(part_box)
+        for part in FacePartsRanges.__members__:
+            part_range = FacePartsRanges[part].value
+            part_bw_mask = self.create_bw_mask_by_points(
+                self.img_original, points[part_range])
+
+            cv2.imshow('part_bw_mask', part_bw_mask)
+
+            bw_mask = cv2.add(bw_mask, part_bw_mask)
+
+            if part_range in face_parts:
+
+                merged_img = self.img_original.copy()
+
+                color_mask = np.zeros_like(part_bw_mask)
                 color_mask[:] = red, green, blue
-                color_mask = cv2.bitwise_and(part_box, color_mask)
+
+                cv2.imshow('color_mask', color_mask)
+
+                color_mask = cv2.bitwise_and(part_bw_mask, color_mask)
                 color_mask = cv2.GaussianBlur(color_mask, (7, 7), 10)
 
                 merged_img = cv2.addWeighted(merged_img, 1, color_mask, 0.4, 0)
-                self.img = merged_img
+
+                processed_part = self.crop_by_points(
+                    merged_img, points[part_range])
+
+                processed_parts.append(processed_part.copy())
             else:
-                mask = np.zeros(self.img_original.shape[:2], dtype="uint8")
-                mask = cv2.fillPoly(
-                    mask, [points[FacePartsRanges[part].value]], (255, 255, 255))
-                # cv2.imshow('mask', mask)
+                processed_part = self.crop_by_points(
+                    self.img, points[part_range])
+                cv2.imshow('processed_part', processed_part)
+                processed_parts.append(processed_part.copy())
 
-                prev_colored_part_box = cv2.bitwise_and(
-                    self.img, self.img, mask=mask)
+        merged_mask = np.zeros_like(self.img_original)
 
-                # cv2.imshow('masked', prev_colored_part_box)
+        for processed_part in processed_parts:
+            merged_mask = cv2.addWeighted(
+                merged_mask, 1, processed_part, 1, 0)
 
-                merged_img = cv2.addWeighted(
-                    merged_img, 1, prev_colored_part_box, 0, 0)
+        cv2.imshow('merged_mask', merged_mask)
 
-        return merged_img
+        cv2.imshow('bw_mask', bw_mask)
+
+        bw_mask_inversed = cv2.bitwise_not(bw_mask)
+        cv2.imshow('bw_mask_inversed', bw_mask_inversed)
+
+        bw_mask_merged = cv2.bitwise_and(bw_mask_inversed, self.img)
+
+        cv2.imshow('bw_mask_merged', bw_mask_merged)
+
+        proc_img = cv2.add(bw_mask_merged, merged_mask)
+        cv2.imshow('proc_img', proc_img)
+
+        return proc_img
 
     def processImage(self, face_parts, red, green, blue):
-        faces = self.detector(self.imgGray)
+        faces = self.detector(self.img_gray)
 
         processed_images = []
 
         for face in faces:
-            processed_images.append(self.processFace(
-                face, face_parts, red, green, blue))
+            proc_img = self.processFace(
+                face, face_parts, red, green, blue)
+
+            # merged_img = cv2.bitwise_not(merged_mask)
+
+            # merged_img = cv2.addWeighted(
+            #     self.img_original, 1, merged_mask, 0, 0)
+
+            processed_images.append(proc_img)
+
+            self.img = proc_img
 
         return processed_images
 
-    def createBox(self, img, points, scale=1, masked=False, cropped=True):
-        if masked:
-            mask = np.zeros_like(img)
-            mask = cv2.fillPoly(mask, [points], (255, 255, 255))
-            img = cv2.bitwise_and(img, mask)
-            return mask
-        if cropped:
-            bbox = cv2.boundingRect(points)
-            x, y, w, h = bbox
-            img_crop = img[y: y + h, x: x + w]
-            img_crop = cv2.resize(img_crop, (0, 0), None, scale, scale)
-            return img_crop
+    def crop_by_points(self, img, points):
+        mask = np.zeros(self.img_original.shape[:2], dtype="uint8")
+        mask = cv2.fillPoly(
+            mask, [points], (255, 255, 255))
+        return cv2.bitwise_and(img, img, mask=mask)
+
+    def create_bw_mask_by_points(self, img, points):
+        mask = np.zeros_like(img)
+        mask = cv2.fillPoly(mask, [points], (255, 255, 255))
+        img = cv2.bitwise_and(img, mask)
+        return mask
 
 
 AppWindow('./toxa.jpeg')
