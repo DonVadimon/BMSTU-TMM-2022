@@ -12,9 +12,22 @@ class AppWindow():
     HEIGHT = 640
     NAME = 'SugarLips'
 
-    def __init__(self, imgPath):
-        img = cv2.imread(imgPath)
-        self.converter = ImageConverter(img)
+    def __init__(self, img=None, imgPath=None, waitKey=0, video=False):
+        self.video = video
+
+        img_to_process = None
+
+        if imgPath is not None:
+            img_to_process = cv2.imread(imgPath)
+        if img is not None:
+            img_to_process = img
+
+        if img_to_process is None:
+            raise Exception('No image provided')
+
+        self.img_to_process = img_to_process
+
+        self.converter = ImageConverter(img_to_process)
 
         self.red = 0
         self.green = 0
@@ -43,18 +56,24 @@ class AppWindow():
         cv2.createTrackbar(
             FacePartsRanges.RIGHT_BROW.name, self.NAME, 0, 1, self.on_right_brow_change)
 
-        cv2.imshow(self.NAME, img)
-        cv2.waitKey(0)
+        cv2.imshow(self.NAME, img_to_process)
+
+        if waitKey is not None:
+            cv2.waitKey(waitKey)
 
     def show_image(self, img):
         cv2.imshow(self.NAME, img)
 
-    def update_window(self):
+    def update_window(self, img=None):
+        if img is not None:
+            self.img_to_process = img
+            self.converter.update_all_images(self.img_to_process)
+
         processing_parts = []
         for part_name in self.selected_parts:
             processing_parts.append(FacePartsRanges[part_name].value)
 
-        processed_images = self.converter.processImage(
+        processed_images = self.converter.process_image(
             face_parts=processing_parts,
             red=self.red, green=self.green, blue=self.blue)
 
@@ -85,15 +104,18 @@ class AppWindow():
 
     def on_red_trackbar_change(self, value):
         self.red = value
-        self.update_window()
+        if not self.video:
+            self.update_window()
 
     def on_green_trackbar_change(self, value):
         self.green = value
-        self.update_window()
+        if not self.video:
+            self.update_window()
 
     def on_blue_trackbar_change(self, value):
         self.blue = value
-        self.update_window()
+        if not self.video:
+            self.update_window()
 
 
 class FacePartsRanges(enum.Enum):
@@ -117,7 +139,7 @@ class ImageConverter:
         self.img = img.copy()
         self.img_original = img.copy()
 
-    def processFace(self, face, face_parts, img_gray, red, green, blue):
+    def process_face(self, face, face_parts, img_gray, red, green, blue):
         landmarks = self.predictor(img_gray, face)
         points = []
 
@@ -172,14 +194,14 @@ class ImageConverter:
 
         return proc_img
 
-    def processImage(self, face_parts, red, green, blue):
+    def process_image(self, face_parts, red, green, blue):
         img_gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
         faces = self.detector(img_gray)
 
         processed_images = []
 
         for face in faces:
-            proc_img = self.processFace(
+            proc_img = self.process_face(
                 face, face_parts, img_gray, red, green, blue)
 
             processed_images.append(proc_img)
@@ -200,5 +222,30 @@ class ImageConverter:
         img = cv2.bitwise_and(img, mask)
         return mask
 
+    def update_all_images(self, img_original):
+        self.img_original = img_original
+        self.img = img_original
 
-AppWindow('./toxa.jpeg')
+
+cv2.namedWindow("preview")
+vc = cv2.VideoCapture(0)
+
+rval, frame = vc.read()
+app_win = None
+
+while True:
+
+    if frame is not None:
+        if app_win is None:
+            app_win = AppWindow(img=frame, waitKey=None, video=True)
+        else:
+            app_win.update_window(img=frame)
+
+    rval, frame = vc.read()
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# img = cv2.imread('./toxa.jpeg')
+
+# AppWindow(img=img)
